@@ -1,0 +1,8 @@
+{
+  "name": "Buddy EP Tracker",
+  "short_name": "Buddy EP",
+  "start_url": "./",
+  "display": "standalone",
+  "background_color": "#0b1220",
+  "theme_color": "#2563eb"
+}

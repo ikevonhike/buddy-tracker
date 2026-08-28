@@ -1,0 +1,141 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="theme-color" content="#2563eb">
+<link rel="manifest" href="manifest.json">
+<title>Buddy EP Tracker</title>
+<style>
+*{box-sizing:border-box}
+body{margin:0;background:#0b1220;color:#f8fafc;font-family:system-ui,-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif}
+main{max-width:760px;margin:auto;padding:18px 14px 40px}
+h1{font-size:1.6rem;margin:0}.sub{color:#94a3b8;margin:4px 0 18px;font-size:.9rem}
+.score{background:#172554;border:1px solid #334155;border-radius:20px;padding:20px;text-align:center;margin-bottom:18px}
+#ep{font-size:4.5rem;font-weight:800;line-height:1}.label{color:#60a5fa;font-weight:700}
+#status{color:#cbd5e1;font-size:.85rem;margin-top:8px;min-height:20px}
+h2{font-size:1rem;margin:20px 0 10px}
+.grid{display:grid;grid-template-columns:1fr 1fr;gap:10px}
+button{font:inherit;color:inherit}
+.activity{border:1px solid #334155;background:#1e293b;border-radius:16px;padding:14px;min-height:105px;text-align:left;cursor:pointer}
+.activity:active{transform:scale(.98)}.activity.running{background:#1e3a5f;border-color:#60a5fa}
+.activity:disabled{cursor:default}.name{font-weight:750}.pts{float:right;color:#4ade80;font-weight:800}
+.time{font-size:1.55rem;font-weight:800;font-variant-numeric:tabular-nums;margin-top:9px}
+.hint{font-size:.74rem;color:#94a3b8;margin-top:2px}
+.quick{display:grid;gap:9px}.quick button{background:#1e293b;border:1px solid #334155;border-radius:14px;padding:14px;text-align:left;cursor:pointer}
+.quick button:disabled{opacity:.45;cursor:default}
+.controls{display:flex;gap:8px;margin-top:18px}.controls button{flex:1;padding:11px;border-radius:12px;border:1px solid #334155;background:#111827;font-size:.82rem}
+@media(min-width:620px){.grid{grid-template-columns:repeat(3,1fr)}}
+</style>
+</head>
+<body>
+<main>
+<h1>Buddy EP Tracker</h1>
+<div class="sub">Tap an interaction to earn EP and start its cooldown.</div>
+
+<section class="score">
+<div id="ep">0</div>
+<div class="label">EP</div>
+<div id="status">No decay currently.</div>
+</section>
+
+<h2>30-minute interactions</h2>
+<div id="timers" class="grid"></div>
+
+<h2>Other interactions</h2>
+<div id="quick" class="quick"></div>
+
+<div class="controls">
+<button id="undo">Undo last gain</button>
+<button id="reset">Reset today</button>
+</div>
+</main>
+
+<script>
+const TIMER_MS=30*60*1000, DECAY_START=25*60*1000, DECAY_EVERY=10*60*1000;
+const timers=[
+["feed","Feed your buddy"],["play","Play with your buddy"],["snapshot","Take a snapshot of your buddy"],
+["teamleader","Fight a teamleader"],["gbl","Battle in the GBL"],["grunt","Fight a Rocket Grunt"],
+["rocketleader","Fight a Rocket Leader"],["giovanni","Fight Giovanni"],["gym","Battle in a Gym"],["raid","Do a raid"]
+];
+const quick=[
+["switch","Switch to your buddy",2,"once"],["walk","Walk 2km",4,"repeat"],
+["present","Open a present from your buddy",4,"present"],["route","Follow a route",4,"repeat"]
+];
+function day(){let d=new Date();return d.toLocaleDateString("en-CA")}
+function fresh(){return {day:day(),ep:0,lastGain:null,timers:{},switchUsed:false,presents:0,history:[]}}
+function load(){try{let s=JSON.parse(localStorage.getItem("buddyEPTracker"));if(!s||s.day!==day())return fresh();return {...fresh(),...s}}catch(e){return fresh()}}
+let s=load();
+function save(){localStorage.setItem("buddyEPTracker",JSON.stringify(s))}
+function decay(){
+ if(!s.lastGain||s.ep<=0)return;
+ let elapsed=Date.now()-s.lastGain;
+ if(elapsed<DECAY_START)return;
+ let n=Math.floor((elapsed-DECAY_START)/DECAY_EVERY)+1;
+ let loss=Math.min(n,s.ep);
+ s.ep-=loss;
+ s.lastGain+=loss*DECAY_EVERY;
+ save();
+}
+function gain(points,label){
+ decay();
+ s.ep+=points;s.lastGain=Date.now();
+ s.history.push({points,label,time:s.lastGain});
+ if(s.history.length>50)s.history.shift();
+ save();render();
+}
+function fmt(ms){let x=Math.max(0,Math.ceil(ms/1000)),m=Math.floor(x/60),sec=x%60;return m+":"+String(sec).padStart(2,"0")}
+function start(id,name){
+ if(s.timers[id]&&s.timers[id]>Date.now())return;
+ s.timers[id]=Date.now()+TIMER_MS;
+ gain(2,name);
+}
+function quickUse(id,name,pts,type){
+ decay();
+ if(type==="once"&&s.switchUsed)return;
+ if(type==="present"&&s.presents>=2)return;
+ if(type==="once")s.switchUsed=true;
+ if(type==="present")s.presents++;
+ gain(pts,name);
+}
+function render(){
+ decay();
+ document.getElementById("ep").textContent=s.ep;
+ let status=document.getElementById("status");
+ if(!s.lastGain||s.ep<=0)status.textContent="No decay currently.";
+ else{
+  let e=Date.now()-s.lastGain;
+  if(e<DECAY_START)status.textContent="Decay starts in "+fmt(DECAY_START-e)+".";
+  else status.textContent="Decay active • next −1 EP in "+fmt(DECAY_EVERY-((e-DECAY_START)%DECAY_EVERY));
+ }
+ let box=document.getElementById("timers");box.innerHTML="";
+ timers.forEach(([id,name])=>{
+  let rem=(s.timers[id]||0)-Date.now(), active=rem>0;
+  let b=document.createElement("button");b.className="activity"+(active?" running":"");b.disabled=active;
+  b.innerHTML=`<span class="name">${name}</span><span class="pts">+2 EP</span><div class="time">${active?fmt(rem):"START"}</div><div class="hint">${active?"Running — tap disabled":"Tap to start 30-minute timer"}</div>`;
+  b.onclick=()=>start(id,name);box.appendChild(b);
+ });
+ let q=document.getElementById("quick");q.innerHTML="";
+ quick.forEach(([id,name,pts,type])=>{
+  let disabled=false,hint="No cooldown";
+  if(type==="once"){disabled=s.switchUsed;hint=disabled?"Already used today":"Only possible once";}
+  if(type==="present"){disabled=s.presents>=2;hint=s.presents+"/2 opened today";}
+  let b=document.createElement("button");b.disabled=disabled;
+  b.innerHTML=`<span class="name">${name}</span><span class="pts">+${pts} EP</span><div class="hint">${hint}</div>`;
+  b.onclick=()=>quickUse(id,name,pts,type);q.appendChild(b);
+ });
+}
+document.getElementById("undo").onclick=()=>{
+ let h=s.history.pop();if(!h)return;
+ s.ep=Math.max(0,s.ep-h.points);
+ let last=[...s.history].reverse().find(x=>x.points>0);s.lastGain=last?last.time:null;
+ save();render();
+};
+document.getElementById("reset").onclick=()=>{if(confirm("Reset today's EP, timers and daily limits?")){s=fresh();save();render()}};
+setInterval(render,1000);render();
+</script>
+<script>
+if("serviceWorker" in navigator)navigator.serviceWorker.register("./sw.js").catch(()=>{});
+</script>
+</body>
+</html>
